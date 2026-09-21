@@ -1,3 +1,5 @@
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { usingBlob, assertBlobConfigured } from '../config/storage.js';
 import { UPLOAD_RULES } from '../middleware/upload.js';
 
@@ -7,55 +9,80 @@ import { UPLOAD_RULES } from '../middleware/upload.js';
  *
  * It has to in a deployment. A Vercel function refuses any request over
  * 4.5 MB, and most audio is larger than that — so the file goes to the store
- * and the form that follows carries only its address. The upload middleware
- * checks that address before any controller sees it.
+ * and the form that follows carries only where it went. The upload middleware
+ * checks that before any controller sees it.
  *
  * On the disk driver none of this applies and the browser keeps sending files
  * the ordinary way, which is what `config` tells it.
  */
+
+// How long a signed upload URL stays usable. Long enough for a large file on a
+// slow connection; short enough that a leaked one is not worth much.
+const UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 
 // GET /api/uploads/config
 export function getUploadConfig(req, res) {
   res.json({ direct: usingBlob() });
 }
 
-// POST /api/uploads  (admin; called by @vercel/blob/client's upload())
-//
-// Hands out a client token: permission to put one file into the store, which
-// the store itself enforces. The folder the browser asks for decides what it
-// may upload, by the same rules a normal upload into that folder meets.
-export async function issueUploadToken(req, res) {
+const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
+
+/**
+ * POST /api/uploads  (admin)  { folder, name, type }
+ *
+ * Hands back a signed URL the browser can PUT one file to, and the pathname it
+ * will land at.
+ *
+ * Signed URLs rather than the older client tokens, because a client token can
+ * only be minted from a long-lived BLOB_READ_WRITE_TOKEN, and a store connected
+ * today authenticates with OIDC and has no such token. `issueSignedToken`
+ * works with either.
+ *
+ * The server chooses the pathname, so the browser never decides where a file
+ * lands; and the type and size limits for the folder are signed into the URL,
+ * so the store itself turns away anything else.
+ */
+export async function presignUpload(req, res) {
   if (!usingBlob()) {
     throw Object.assign(new Error('Direct uploads are not enabled on this server'), {
       status: 404,
     });
   }
 
+  const { folder, name = '', type = '' } = req.body ?? {};
+  const rule = Object.hasOwn(UPLOAD_RULES, folder) ? UPLOAD_RULES[folder] : null;
+
+  if (!rule) throw badRequest(`Uploads are not accepted into "${folder}"`);
+  // Checked here too, not only by the store, so the listener hears why.
+  if (!rule.allowed.includes(type)) {
+    throw badRequest(`Unsupported ${rule.label} type: ${type || 'unknown'}`);
+  }
+
   assertBlobConfigured();
-  const { handleUpload } = await import('@vercel/blob/client');
 
-  const result = await handleUpload({
-    body: req.body,
-    request: req,
-    onBeforeGenerateToken: async (pathname) => {
-      const folder = pathname.split('/')[0];
-      const rule = Object.hasOwn(UPLOAD_RULES, folder) ? UPLOAD_RULES[folder] : null;
+  const ext = path.extname(String(name)).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 10);
+  const pathname = `${folder}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
 
-      if (!rule) {
-        throw Object.assign(new Error(`Uploads are not accepted into "${folder}"`), {
-          status: 400,
-        });
-      }
+  const { issueSignedToken, presignUrl } = await import('@vercel/blob');
 
-      return {
-        allowedContentTypes: rule.allowed,
-        maximumSizeInBytes: rule.maxBytes,
-        // The browser names the file; the suffix keeps two uploads of
-        // "cover.jpg" from landing on the same key.
-        addRandomSuffix: true,
-      };
-    },
+  const limits = { allowedContentTypes: rule.allowed, maximumSizeInBytes: rule.maxBytes };
+
+  const token = await issueSignedToken({
+    pathname,
+    operations: ['put'],
+    validUntil: Date.now() + UPLOAD_WINDOW_MS,
+    ...limits,
   });
 
-  res.json(result);
+  const { presignedUrl } = await presignUrl(token, {
+    operation: 'put',
+    pathname,
+    access: 'public',
+    ...limits,
+    // The name is already unique, and chosen here; keep it exactly.
+    addRandomSuffix: false,
+    allowOverwrite: false,
+  });
+
+  res.json({ pathname, uploadUrl: presignedUrl });
 }

@@ -37,28 +37,35 @@ export const UPLOAD_ROOT = process.env.UPLOAD_DIR
  * up on its own and nothing local has to change. STORAGE_DRIVER overrides it,
  * which is how you exercise blob from your own machine.
  *
- * On Vercel it is always blob, token or not. Its disk is read-only, so falling
- * back to disk there can only fail — and fail with an EROFS error that says
- * nothing about the actual problem, which is a store that is not connected.
- * Choosing blob lets `put` below say that instead.
+ * On Vercel it is always blob, connected or not. Its disk is read-only, so
+ * falling back to disk there can only fail — and fail with an EROFS error that
+ * says nothing about the actual problem, which is a store that is not
+ * connected. Choosing blob lets `assertBlobConfigured` say that instead.
  */
 export function usingBlob() {
   if (process.env.STORAGE_DRIVER === 'blob') return true;
   if (process.env.STORAGE_DRIVER === 'disk') return false;
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL);
+  return Boolean(
+    process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL
+  );
 }
 
 /**
  * Throw a message someone can act on when the store is not connected, instead
- * of whatever the blob library would say about a missing token.
+ * of whatever the blob library would say about missing credentials.
+ *
+ * A connected store authenticates one of two ways. The current default is
+ * OIDC: Vercel sets BLOB_STORE_ID and supplies a short-lived token with each
+ * request, so there is no secret to manage. Older connections, and code run
+ * off Vercel, use a long-lived BLOB_READ_WRITE_TOKEN. Either is enough.
  */
 export function assertBlobConfigured() {
-  if (process.env.BLOB_READ_WRITE_TOKEN) return;
+  if (process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN) return;
 
   throw Object.assign(
     new Error(
-      'File storage is not configured: BLOB_READ_WRITE_TOKEN is not set. Connect a ' +
-        'Blob store to this Vercel project (Storage tab), then redeploy.'
+      'File storage is not configured: neither BLOB_STORE_ID nor BLOB_READ_WRITE_TOKEN ' +
+        'is set. Connect a Blob store to this Vercel project (Storage tab), then redeploy.'
     ),
     { status: 500 }
   );

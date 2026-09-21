@@ -10,14 +10,14 @@ const STORE = 'https://abc123.public.blob.vercel-storage.com';
 
 /**
  * A stand-in for the blob store: `head` answers from a fixed list, as the real
- * one does for URLs in its own store, and fails for anything else.
+ * one does for pathnames in its own store, and fails for anything else.
  */
 function fakeStore(blobs) {
   const removed = [];
   return {
     removed,
-    head: async (url) => {
-      const blob = blobs.find((b) => b.url === url);
+    head: async (pathname) => {
+      const blob = blobs.find((b) => b.pathname === pathname);
       if (!blob) throw new Error('BlobNotFoundError');
       return blob;
     },
@@ -49,7 +49,7 @@ describe('Direct uploads', () => {
         TRACKS,
         rule,
         // The form claims a size and type; neither is what the result uses.
-        { audioUrl: blob.url, audioName: 'Song.mp3', size: 1, type: 'audio/wav' },
+        { audioPath: blob.pathname, audioName: 'Song.mp3', size: 1, type: 'audio/wav' },
         store
       );
 
@@ -66,13 +66,13 @@ describe('Direct uploads', () => {
     // Over the 4.5 MB a Vercel function can receive, which is the whole point.
     test('accepts a file far larger than a function request may be', async () => {
       const blob = track({ size: 40 * MB });
-      const file = await fileFromBlob(TRACKS, rule, { audioUrl: blob.url }, fakeStore([blob]));
+      const file = await fileFromBlob(TRACKS, rule, { audioPath: blob.pathname }, fakeStore([blob]));
       assert.equal(file.size, 40 * MB);
     });
 
-    test('rejects a URL the store does not know', async () => {
+    test('rejects a pathname the store does not have', async () => {
       await assert.rejects(
-        fileFromBlob(TRACKS, rule, { audioUrl: 'https://evil.example.com/x.mp3' }, fakeStore([])),
+        fileFromBlob(TRACKS, rule, { audioPath: 'tracks/not-in-this-store.mp3' }, fakeStore([])),
         { status: 400, message: /could not be found/ }
       );
     });
@@ -81,7 +81,7 @@ describe('Direct uploads', () => {
       const blob = track({ pathname: 'covers/1700000000000-Ab12Cd.mp3' });
       const store = fakeStore([blob]);
 
-      await assert.rejects(fileFromBlob(TRACKS, rule, { audioUrl: blob.url }, store), {
+      await assert.rejects(fileFromBlob(TRACKS, rule, { audioPath: blob.pathname }, store), {
         status: 400,
       });
       assert.deepEqual(store.removed, [blob.url]);
@@ -91,7 +91,7 @@ describe('Direct uploads', () => {
       const blob = track({ contentType: 'image/png' });
       const store = fakeStore([blob]);
 
-      await assert.rejects(fileFromBlob(TRACKS, rule, { audioUrl: blob.url }, store), {
+      await assert.rejects(fileFromBlob(TRACKS, rule, { audioPath: blob.pathname }, store), {
         status: 400,
         message: /Unsupported audio type/,
       });
@@ -102,7 +102,7 @@ describe('Direct uploads', () => {
       const blob = track({ size: rule.maxBytes + 1 });
       const store = fakeStore([blob]);
 
-      await assert.rejects(fileFromBlob(TRACKS, rule, { audioUrl: blob.url }, store), {
+      await assert.rejects(fileFromBlob(TRACKS, rule, { audioPath: blob.pathname }, store), {
         status: 400,
         message: /too large/,
       });
@@ -166,46 +166,41 @@ describe('Direct uploads', () => {
         }
       });
 
-      // The body @vercel/blob/client sends, and the client now sends itself.
-      const ask = (auth, pathname) =>
-        request(app)
-          .post('/api/uploads')
-          .set('Authorization', auth)
-          .send({
-            type: 'blob.generate-client-token',
-            payload: { pathname, clientPayload: null, multipart: false },
-          });
+      // What the browser sends before uploading a file.
+      const ask = (auth, body) =>
+        request(app).post('/api/uploads').set('Authorization', auth).send(body);
 
-      test('says plainly when the store is not connected', async () => {
-        setEnv({ STORAGE_DRIVER: 'blob', BLOB_READ_WRITE_TOKEN: undefined });
-        const admin = await makeAdmin();
+      const song = { folder: 'tracks', name: 'Song.mp3', type: 'audio/mpeg' };
 
-        const res = await ask(admin.auth, 'tracks/1.mp3').expect(500);
-        assert.match(res.body.message, /BLOB_READ_WRITE_TOKEN is not set/);
-      });
+      // Signing an upload URL calls the store, so these cover everything the
+      // route decides before that call.
 
-      // Issuing a client token is signed locally, so no real store is needed.
-      test('issues an admin a token for an upload it allows', async () => {
+      test('says plainly when no store is connected, by either method', async () => {
         setEnv({
           STORAGE_DRIVER: 'blob',
-          BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_teststore123_secretsecretsecret',
+          BLOB_STORE_ID: undefined,
+          BLOB_READ_WRITE_TOKEN: undefined,
         });
         const admin = await makeAdmin();
 
-        const res = await ask(admin.auth, 'tracks/1.mp3').expect(200);
-        assert.equal(res.body.type, 'blob.generate-client-token');
-        assert.ok(res.body.clientToken);
+        const res = await ask(admin.auth, song).expect(500);
+        assert.match(res.body.message, /neither BLOB_STORE_ID nor BLOB_READ_WRITE_TOKEN/);
       });
 
-      test('refuses a token for a folder uploads do not go to', async () => {
-        setEnv({
-          STORAGE_DRIVER: 'blob',
-          BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_teststore123_secretsecretsecret',
-        });
+      test('refuses a folder uploads do not go to', async () => {
+        setEnv({ STORAGE_DRIVER: 'blob', BLOB_STORE_ID: 'store_test123' });
         const admin = await makeAdmin();
 
-        const res = await ask(admin.auth, 'secrets/1.mp3').expect(400);
+        const res = await ask(admin.auth, { ...song, folder: 'secrets' }).expect(400);
         assert.match(res.body.message, /not accepted/);
+      });
+
+      test('refuses a file type that folder does not take, saying why', async () => {
+        setEnv({ STORAGE_DRIVER: 'blob', BLOB_STORE_ID: 'store_test123' });
+        const admin = await makeAdmin();
+
+        const res = await ask(admin.auth, { ...song, type: 'image/png' }).expect(400);
+        assert.match(res.body.message, /Unsupported audio type: image\/png/);
       });
     });
 
@@ -223,7 +218,7 @@ describe('Direct uploads', () => {
         .post(`/api/albums/${album.body.id}/tracks`)
         .set('Authorization', admin.auth)
         .field('title', 'Song')
-        .field('audioUrl', `${STORE}/tracks/x.mp3`)
+        .field('audioPath', 'tracks/x.mp3')
         .expect(400);
     });
   });

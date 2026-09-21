@@ -143,17 +143,19 @@ serverless function.
 read-only filesystem, so anything written to `server/uploads` would be gone by
 the next request. Storage therefore has two drivers, chosen at runtime by
 `server/src/config/storage.js`: local disk when you run the server yourself, and
-[Vercel Blob](https://vercel.com/docs/vercel-blob) when `BLOB_READ_WRITE_TOKEN`
-is set — which Vercel does for you once a Blob store is linked. Nothing about
+[Vercel Blob](https://vercel.com/docs/vercel-blob) on Vercel. Nothing about
 running locally changes.
 
 1. **Push the repository to GitHub**, then import it at
    [vercel.com/new](https://vercel.com/new). Leave every build setting alone:
    `vercel.json` already specifies them.
 
-2. **Create a Blob store** under the project's Storage tab and connect it. That
-   sets `BLOB_READ_WRITE_TOKEN` on the project, which is what switches storage
-   over to it.
+2. **Create a Blob store with public access** under the project's Storage tab
+   and connect it to the project. Access cannot be changed after creation, and
+   covers, wallpapers and tracks are served straight from the store's URLs, so
+   it has to be public. Connecting adds `BLOB_STORE_ID`, and the project then
+   reaches the store with short-lived OIDC credentials Vercel supplies itself.
+   Older connections use a `BLOB_READ_WRITE_TOKEN` instead; either works.
 
 3. **Create a MongoDB Atlas cluster** and allow access from anywhere
    (`0.0.0.0/0`) — Vercel functions have no fixed IP to allow-list.
@@ -169,7 +171,7 @@ running locally changes.
    | `NODE_ENV` | `production` |
    | `MAX_AUDIO_MB` | `50`, or lower — see the size note below |
 
-   `BLOB_READ_WRITE_TOKEN` is added by step 2; do not set it by hand.
+   The Blob variables are added by step 2; do not set them by hand.
 
 5. **Deploy**, then create the first admin. `npm run create:admin --prefix server`
    runs against whatever `MONGO_URI` points at, so run it locally with the Atlas
@@ -179,12 +181,13 @@ running locally changes.
 
 **Uploads skip the API.** Vercel refuses any request to a function over 4.5 MB,
 which most audio exceeds. So in a deployment the browser uploads each file
-straight to the Blob store, using a short-lived permission from
-`POST /api/uploads` that only an admin can get and that is limited to the file
-types and size that upload allows. The form that follows carries just the
-file's address, and the server asks the store for the file's real type and size
-before accepting it. `MAX_AUDIO_MB` and the other limits apply as before.
-Locally, files are sent inside the form as usual.
+straight to the Blob store, using a signed upload URL from `POST /api/uploads`.
+Only an admin can get one, it expires after 15 minutes, and the server picks
+the file's name and signs that kind of upload's type and size limits into it.
+The form that follows carries just the file's name in the store, and the server
+asks the store for the file's real type and size before accepting it.
+`MAX_AUDIO_MB` and the other limits apply as before. Locally, files are sent
+inside the form as usual.
 
 The Blob store must be created with **public** access: covers, wallpapers and
 tracks are served straight from its URLs.

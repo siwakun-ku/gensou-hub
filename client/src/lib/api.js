@@ -75,39 +75,53 @@ function directUploadsEnabled() {
   return directUploads;
 }
 
-async function uploadDirect(key, file, onProgress) {
-  // The name the listener gave the file travels separately, in the form; the
-  // key in the store needs only to be unique and to keep the extension.
-  const dot = file.name.lastIndexOf('.');
-  const ext = dot === -1 ? '' : file.name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 10);
-  const pathname = `${UPLOAD_FOLDERS[key]}/${Date.now()}${ext}`;
+/**
+ * PUT a file to a signed upload URL, reporting progress as it goes.
+ *
+ * XMLHttpRequest rather than fetch, because fetch cannot report upload
+ * progress, and a large track is exactly when the bar matters.
+ */
+function putFile(url, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', file.type);
 
-  // Permission to upload is asked for here, through the ordinary API client,
-  // rather than left to the blob library's own `upload()`. That one throws away
-  // the server's answer and reports every refusal as "Failed to retrieve the
-  // client token"; this way the actual reason reaches the form, and the request
-  // carries the session the same way every other one does.
-  const { clientToken } = await api
-    .post('/uploads', {
-      type: 'blob.generate-client-token',
-      payload: { pathname, clientPayload: null, multipart: false },
-    })
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+
+      // The store answers errors as { error: { message } }.
+      let message = `Upload failed (${xhr.status})`;
+      try {
+        message = JSON.parse(xhr.responseText)?.error?.message || message;
+      } catch {
+        // not JSON; keep the status
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error('Upload failed: the connection to storage was lost'));
+    xhr.send(file);
+  });
+}
+
+/**
+ * Upload one file straight to the store and return the pathname it landed at.
+ *
+ * The server signs a URL for a pathname it chooses, limited to what that kind
+ * of upload may be; the browser only sends the bytes there. Asking goes
+ * through the ordinary API client, so the session travels with it and any
+ * refusal arrives with the server's own reason.
+ */
+async function uploadDirect(key, file, onProgress) {
+  const { uploadUrl, pathname } = await api
+    .post('/uploads', { folder: UPLOAD_FOLDERS[key], name: file.name, type: file.type })
     .then((r) => r.data);
 
-  // Loaded on demand: only an admin uploading anything ever needs it.
-  const { put } = await import('@vercel/blob/client');
-
-  try {
-    const blob = await put(pathname, file, {
-      access: 'public',
-      token: clientToken,
-      contentType: file.type || undefined,
-      onUploadProgress: ({ percentage }) => onProgress?.(Math.round(percentage)),
-    });
-    return blob.url;
-  } catch (err) {
-    throw new Error(String(err.message || 'Upload failed').replace(/^Vercel Blob:\s*/, ''));
-  }
+  await putFile(uploadUrl, file, onProgress);
+  return pathname;
 }
 
 /**
@@ -129,7 +143,7 @@ async function toFormData(fields, files = {}, onProgress) {
 
   for (const [key, file] of present) {
     if (direct) {
-      form.append(`${key}Url`, await uploadDirect(key, file, onProgress));
+      form.append(`${key}Path`, await uploadDirect(key, file, onProgress));
       form.append(`${key}Name`, file.name);
     } else {
       form.append(key, file);

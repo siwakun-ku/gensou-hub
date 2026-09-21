@@ -97,13 +97,15 @@ async function deleteBlob(url) {
  *
  * A Vercel function refuses any request over 4.5 MB, which rules out sending
  * most audio through the API at all. So in a deployment the browser uploads the
- * file itself and the form carries only where it went: `<field>Url`, plus the
- * name it had on the listener's machine in `<field>Name`.
+ * file itself and the form carries only where it went: `<field>Path`, the
+ * pathname the server chose for it, plus the name it had on the listener's
+ * machine in `<field>Name`.
  *
- * None of that is taken on trust. The store is asked about the URL directly,
- * which fails for anything outside this store, and its answer — not the form —
- * decides the type and size, which are checked against the same rules a normal
- * upload meets. A file that fails is removed rather than left orphaned.
+ * None of that is taken on trust. The store is asked about the pathname
+ * directly, which fails for anything not in this store, and its answer — not
+ * the form — decides the type and size, which are checked against the same
+ * rules a normal upload meets. A file that fails is removed rather than left
+ * orphaned.
  *
  * Returns null when the form names no such file. `head` and `remove` are
  * parameters so the checks can be tested without a real store.
@@ -114,12 +116,12 @@ export async function fileFromBlob(
   body,
   { head = headBlob, remove = deleteBlob } = {}
 ) {
-  const url = body?.[`${rule.field}Url`];
-  if (!url) return null;
+  const pathname = body?.[`${rule.field}Path`];
+  if (!pathname) return null;
 
   let blob;
   try {
-    blob = await head(String(url));
+    blob = await head(String(pathname));
   } catch {
     throw badRequest('The uploaded file could not be found in storage');
   }
@@ -167,7 +169,7 @@ function uploadFor(folder) {
           if (direct) req.file = direct;
         }
         // Not part of the record; the controllers should never see them.
-        delete req.body?.[`${rule.field}Url`];
+        delete req.body?.[`${rule.field}Path`];
         delete req.body?.[`${rule.field}Name`];
 
         // Memory storage leaves no `filename`, so it is named here instead —

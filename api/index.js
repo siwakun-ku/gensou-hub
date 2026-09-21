@@ -15,6 +15,13 @@ import app from '../server/src/app.js';
 import { connectDB } from '../server/src/config/db.js';
 
 export default async function handler(req, res) {
+  // A store connected with OIDC is reached with a short-lived token Vercel
+  // attaches to each request. The blob library looks for it in Vercel's request
+  // context first; copying it here as well means it is found even where that
+  // context is not set up, as it may not be for a plain Express function.
+  const oidcToken = req.headers['x-vercel-oidc-token'];
+  if (oidcToken) process.env.VERCEL_OIDC_TOKEN = oidcToken;
+
   try {
     await connectDB();
   } catch (err) {
