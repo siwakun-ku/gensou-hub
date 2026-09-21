@@ -36,11 +36,16 @@ export const UPLOAD_ROOT = process.env.UPLOAD_DIR
  * Blob when a store is linked, disk otherwise — so a Vercel deployment picks it
  * up on its own and nothing local has to change. STORAGE_DRIVER overrides it,
  * which is how you exercise blob from your own machine.
+ *
+ * On Vercel it is always blob, token or not. Its disk is read-only, so falling
+ * back to disk there can only fail — and fail with an EROFS error that says
+ * nothing about the actual problem, which is a store that is not connected.
+ * Choosing blob lets `put` below say that instead.
  */
 export function usingBlob() {
   if (process.env.STORAGE_DRIVER === 'blob') return true;
   if (process.env.STORAGE_DRIVER === 'disk') return false;
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL);
 }
 
 /** The directory a folder's files sit in, on the disk driver. */
@@ -85,7 +90,21 @@ export async function storeUpload(folder, file) {
 }
 
 async function put(folder, file) {
+  // The browser uploaded it to the store itself, and the upload middleware has
+  // already checked it there. There is nothing left to write.
+  if (file.url) return { fileName: file.filename, url: file.url };
+
   if (!usingBlob()) return { fileName: file.filename };
+
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw Object.assign(
+      new Error(
+        'File storage is not configured: BLOB_READ_WRITE_TOKEN is not set. Connect a ' +
+          'Blob store to this Vercel project (Storage tab), then redeploy.'
+      ),
+      { status: 500 }
+    );
+  }
 
   const { put: putBlob } = await import('@vercel/blob');
   // The generated name is already unique, so the store need not add a suffix of

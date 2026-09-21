@@ -7,6 +7,7 @@ import wallpaperRoutes from './wallpaperRoutes.js';
 import recommendationRoutes from './recommendationRoutes.js';
 import playlistRoutes from './playlistRoutes.js';
 import favouriteRoutes from './favouriteRoutes.js';
+import uploadRoutes from './uploadRoutes.js';
 
 const router = Router();
 
@@ -19,5 +20,6 @@ router.use('/wallpapers', wallpaperRoutes);
 router.use('/recommendations', recommendationRoutes);
 router.use('/playlists', playlistRoutes);
 router.use('/favourites', favouriteRoutes);
+router.use('/uploads', uploadRoutes);
 
 export default router;

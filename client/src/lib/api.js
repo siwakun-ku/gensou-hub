@@ -47,14 +47,81 @@ api.interceptors.response.use(
 /** Turn a server-relative media path into one the browser can request. */
 export const mediaUrl = (pathname) => (pathname ? `${API_ROOT}${pathname}` : null);
 
-function toFormData(fields, files = {}) {
+/*
+ * Direct uploads.
+ *
+ * Deployed on Vercel, the API cannot receive a file over 4.5 MB — the platform
+ * refuses the request before the server sees it — and most audio is larger. So
+ * there the browser uploads each file straight to the blob store and the form
+ * carries only where it went. The server says whether this applies; on a local
+ * server it does not, and files travel inside the form as they always have.
+ */
+
+// Which storage folder each upload field belongs to. The server holds the
+// actual rules for each folder; this only says which set to ask for.
+const UPLOAD_FOLDERS = { cover: 'covers', audio: 'tracks', image: 'wallpapers', logo: 'circles' };
+
+let directUploads = null;
+
+/** Asked once and remembered, since it cannot change while the page is open. */
+function directUploadsEnabled() {
+  directUploads ??= api
+    .get('/uploads/config')
+    .then((r) => Boolean(r.data.direct))
+    .catch(() => {
+      directUploads = null; // ask again next time rather than remember a failure
+      return false;
+    });
+  return directUploads;
+}
+
+async function uploadDirect(key, file, onProgress) {
+  // Loaded on demand: only an admin uploading anything ever needs it.
+  const { upload } = await import('@vercel/blob/client');
+
+  // The name the listener gave the file travels separately, in the form; the
+  // key in the store needs only to be unique and to keep the extension.
+  const dot = file.name.lastIndexOf('.');
+  const ext = dot === -1 ? '' : file.name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 10);
+
+  try {
+    const blob = await upload(`${UPLOAD_FOLDERS[key]}/${Date.now()}${ext}`, file, {
+      access: 'public',
+      handleUploadUrl: `${API_ROOT}/api/uploads`,
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      contentType: file.type || undefined,
+      onUploadProgress: ({ percentage }) => onProgress?.(Math.round(percentage)),
+    });
+    return blob.url;
+  } catch (err) {
+    throw new Error(String(err.message || 'Upload failed').replace(/^Vercel Blob:\s*/, ''));
+  }
+}
+
+/**
+ * Build the multipart body for a form that may carry files.
+ *
+ * Async because, where direct uploads apply, each file is uploaded before the
+ * form is sent — and `onProgress` then follows that upload, which is the part
+ * that takes any time.
+ */
+async function toFormData(fields, files = {}, onProgress) {
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) {
     // Empty strings are kept: they are how a caption or a credit gets cleared.
     if (value !== undefined && value !== null) form.append(key, value);
   }
-  for (const [key, file] of Object.entries(files)) {
-    if (file) form.append(key, file);
+
+  const present = Object.entries(files).filter(([, file]) => file);
+  const direct = present.length > 0 && (await directUploadsEnabled());
+
+  for (const [key, file] of present) {
+    if (direct) {
+      form.append(`${key}Url`, await uploadDirect(key, file, onProgress));
+      form.append(`${key}Name`, file.name);
+    } else {
+      form.append(key, file);
+    }
   }
   return form;
 }
@@ -68,15 +135,15 @@ export const authApi = {
 export const albumsApi = {
   list: (params = {}) => api.get('/albums', { params }).then((r) => r.data),
   get: (id) => api.get(`/albums/${id}`).then((r) => r.data),
-  create: (fields, cover) =>
-    api.post('/albums', toFormData(fields, { cover })).then((r) => r.data),
-  update: (id, fields, cover) =>
-    api.put(`/albums/${id}`, toFormData(fields, { cover })).then((r) => r.data),
+  create: async (fields, cover) =>
+    api.post('/albums', await toFormData(fields, { cover })).then((r) => r.data),
+  update: async (id, fields, cover) =>
+    api.put(`/albums/${id}`, await toFormData(fields, { cover })).then((r) => r.data),
   remove: (id) => api.delete(`/albums/${id}`),
 
-  addTrack: (albumId, fields, audio, onProgress) =>
+  addTrack: async (albumId, fields, audio, onProgress) =>
     api
-      .post(`/albums/${albumId}/tracks`, toFormData(fields, { audio }), {
+      .post(`/albums/${albumId}/tracks`, await toFormData(fields, { audio }, onProgress), {
         onUploadProgress: (event) =>
           onProgress?.(event.total ? Math.round((event.loaded / event.total) * 100) : 0),
       })
@@ -121,10 +188,10 @@ export const circlesApi = {
 
   // `links` is a list, and multipart has no way to say that — it travels as
   // JSON in a single field and is parsed back on the server.
-  create: (fields, logo) =>
-    api.post('/circles', toFormData(withLinks(fields), { logo })).then((r) => r.data),
-  update: (id, fields, logo) =>
-    api.put(`/circles/${id}`, toFormData(withLinks(fields), { logo })).then((r) => r.data),
+  create: async (fields, logo) =>
+    api.post('/circles', await toFormData(withLinks(fields), { logo })).then((r) => r.data),
+  update: async (id, fields, logo) =>
+    api.put(`/circles/${id}`, await toFormData(withLinks(fields), { logo })).then((r) => r.data),
   remove: (id) => api.delete(`/circles/${id}`),
 };
 
@@ -148,15 +215,15 @@ export const wallpapersApi = {
   // retired slides.
   list: (all = false) =>
     api.get('/wallpapers', { params: all ? { all: true } : {} }).then((r) => r.data),
-  create: (fields, image, onProgress) =>
+  create: async (fields, image, onProgress) =>
     api
-      .post('/wallpapers', toFormData(fields, { image }), {
+      .post('/wallpapers', await toFormData(fields, { image }, onProgress), {
         onUploadProgress: (event) =>
           onProgress?.(event.total ? Math.round((event.loaded / event.total) * 100) : 0),
       })
       .then((r) => r.data),
-  update: (id, fields, image) =>
-    api.put(`/wallpapers/${id}`, toFormData(fields, { image })).then((r) => r.data),
+  update: async (id, fields, image) =>
+    api.put(`/wallpapers/${id}`, await toFormData(fields, { image })).then((r) => r.data),
   reorder: (ids) => api.put('/wallpapers/reorder', { ids }).then((r) => r.data),
   remove: (id) => api.delete(`/wallpapers/${id}`),
 };

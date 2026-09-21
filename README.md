@@ -177,11 +177,21 @@ running locally changes.
 
 ### What to expect from the free tier
 
-An upload is held in the function's memory on its way to the Blob store, and a
-request may run for at most 60 seconds, so very large audio files will fail
-where they would have succeeded locally. `MAX_AUDIO_MB` is the ceiling worth
-tuning if you hit that. Downloading an album streams every track through the
-function to build the zip, so a long album is the slowest thing the API does.
+**Uploads skip the API.** Vercel refuses any request to a function over 4.5 MB,
+which most audio exceeds. So in a deployment the browser uploads each file
+straight to the Blob store, using a short-lived permission from
+`POST /api/uploads` that only an admin can get and that is limited to the file
+types and size that upload allows. The form that follows carries just the
+file's address, and the server asks the store for the file's real type and size
+before accepting it. `MAX_AUDIO_MB` and the other limits apply as before.
+Locally, files are sent inside the form as usual.
+
+The Blob store must be created with **public** access: covers, wallpapers and
+tracks are served straight from its URLs.
+
+Downloading an album streams every track through the function to build the
+zip, and a request may run for at most 60 seconds, so a very long album is the
+slowest thing the API does and the likeliest to hit that limit.
 
 ## Project layout
 
