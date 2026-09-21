@@ -132,7 +132,9 @@ needs network access. Uploads are redirected to a temp directory via `UPLOAD_DIR
 ## Deploy to Vercel
 
 Both halves go to one Vercel project and share an origin, so the built client
-calls `/api/...` with no CORS and no API URL to configure. `vercel.json` builds
+calls `/api/...` with no API URL to configure, and the API accepts requests from
+its own domain without being told what that domain is — preview URLs included.
+`CLIENT_ORIGIN` only matters for a client served from somewhere else. `vercel.json` builds
 the client to `client/dist`, serves it as a static site with an SPA fallback,
 and rewrites `/api/*` to `api/index.js`, which runs the same Express app as a
 serverless function.
@@ -163,7 +165,6 @@ running locally changes.
    | `MONGO_URI` | the Atlas connection string, including the database name |
    | `JWT_SECRET` | a long random string — not the one from `.env.example` |
    | `JWT_EXPIRES_IN` | `7d` |
-   | `CLIENT_ORIGIN` | the deployment URL, e.g. `https://gensou-hub.vercel.app` |
    | `ALLOW_LAN_ORIGINS` | `false` |
    | `NODE_ENV` | `production` |
    | `MAX_AUDIO_MB` | `50`, or lower — see the size note below |
@@ -304,5 +305,3 @@ The JWT is kept in `localStorage` and sent as a bearer header. That is the simpl
 thing that works with the dev proxy and is common for coursework; a production app
 handling real accounts would be better served by an httpOnly, SameSite cookie, which
 JavaScript cannot read and so survives an XSS bug intact.
-#   g e n s o u - h u b  
- 

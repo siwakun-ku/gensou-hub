@@ -2,7 +2,12 @@ import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import { app, startTestEnv, stopTestEnv, clearDatabase } from './helpers.js';
-import { isAllowedOrigin, isLocalHostname, configuredOrigins } from '../src/config/cors.js';
+import {
+  isAllowedOrigin,
+  isLocalHostname,
+  isSameOrigin,
+  configuredOrigins,
+} from '../src/config/cors.js';
 
 const DEFAULT_ENV = { CLIENT_ORIGIN: 'http://localhost:5173' };
 
@@ -75,6 +80,24 @@ describe('CORS policy', () => {
     });
   });
 
+  describe('isSameOrigin', () => {
+    test('matches an origin to the host it is calling', () => {
+      assert.equal(isSameOrigin('https://gensou-hub-one.vercel.app', 'gensou-hub-one.vercel.app'), true);
+      assert.equal(isSameOrigin('http://localhost:5000', 'localhost:5000'), true);
+    });
+
+    test('does not match a different host or port', () => {
+      assert.equal(isSameOrigin('https://evil.example.com', 'gensou-hub-one.vercel.app'), false);
+      assert.equal(isSameOrigin('http://localhost:5173', 'localhost:5000'), false);
+    });
+
+    test('is false when either side is missing or malformed', () => {
+      assert.equal(isSameOrigin(undefined, 'gensou-hub-one.vercel.app'), false);
+      assert.equal(isSameOrigin('https://gensou-hub-one.vercel.app', undefined), false);
+      assert.equal(isSameOrigin('not-an-origin', 'gensou-hub-one.vercel.app'), false);
+    });
+  });
+
   describe('over HTTP', () => {
     before(startTestEnv);
     after(stopTestEnv);
@@ -96,6 +119,30 @@ describe('CORS policy', () => {
     test('an outside origin gets no allow header', async () => {
       const res = await request(app).get('/api/health').set('Origin', 'https://evil.example.com');
       assert.equal(res.headers['access-control-allow-origin'], undefined);
+    });
+
+    // A deployment serving the client and the API from one domain, whose URL
+    // is on no list: its own login POST must still get through.
+    test('a same-origin POST is allowed without being configured', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .set('Host', 'gensou-hub-one.vercel.app')
+        .set('Origin', 'https://gensou-hub-one.vercel.app')
+        .send({ email: 'nobody@example.com', password: 'wrong-password' });
+
+      // Refused as a bad login, not as a bad origin.
+      assert.notEqual(res.status, 403);
+      assert.equal(res.headers['access-control-allow-origin'], 'https://gensou-hub-one.vercel.app');
+    });
+
+    test('an outside origin calling that deployment is still refused', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .set('Host', 'gensou-hub-one.vercel.app')
+        .set('Origin', 'https://evil.example.com')
+        .send({ email: 'nobody@example.com', password: 'wrong-password' });
+
+      assert.equal(res.status, 403);
     });
   });
 });

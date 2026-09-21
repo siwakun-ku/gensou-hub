@@ -58,11 +58,34 @@ export function isAllowedOrigin(origin, env = process.env) {
   }
 }
 
+/**
+ * True when the page making the request was served from the host it is calling.
+ *
+ * Browsers send an Origin header on every POST, same-origin or not, so a
+ * deployment that serves the client and the API from one domain still has its
+ * own login checked here. Recognising that case means the deployment works
+ * without being told its own URL — including Vercel's preview URLs, which are
+ * different on every deploy. A browser will not let a page on another site set
+ * the Host it is calling, so this cannot be used to get around the list.
+ */
+export function isSameOrigin(origin, host) {
+  if (!origin || !host) return false;
+
+  try {
+    return new URL(origin).host === host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export function corsOptions(env = process.env) {
-  return {
-    origin: (origin, callback) => {
-      if (isAllowedOrigin(origin, env)) return callback(null, true);
-      callback(Object.assign(new Error(`Origin not allowed by CORS: ${origin}`), { status: 403 }));
-    },
+  // The delegate form, because deciding "same origin" needs the request's Host.
+  return (req, callback) => {
+    const { origin } = req.headers;
+
+    if (isSameOrigin(origin, req.headers.host) || isAllowedOrigin(origin, env)) {
+      return callback(null, { origin: true });
+    }
+    callback(Object.assign(new Error(`Origin not allowed by CORS: ${origin}`), { status: 403 }));
   };
 }
