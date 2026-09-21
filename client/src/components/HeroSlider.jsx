@@ -82,6 +82,12 @@ export default function HeroSlider() {
               imageRefs.current[slide.id] = element;
             }}
             src={mediaUrl(slide.imageUrl)}
+            // Deployed, the image redirects to the blob store on another
+            // domain, and a canvas cannot read pixels from a cross-origin image
+            // unless it was fetched with CORS — which is how the header, player
+            // and spotlight learn the slide's colour. The store allows any
+            // origin, so this costs nothing locally or there.
+            crossOrigin="anonymous"
             alt={slide.title || 'Featured wallpaper'}
             loading={position === 0 ? 'eager' : 'lazy'}
             onLoad={() => {
