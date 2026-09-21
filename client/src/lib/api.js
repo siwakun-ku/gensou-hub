@@ -76,19 +76,31 @@ function directUploadsEnabled() {
 }
 
 async function uploadDirect(key, file, onProgress) {
-  // Loaded on demand: only an admin uploading anything ever needs it.
-  const { upload } = await import('@vercel/blob/client');
-
   // The name the listener gave the file travels separately, in the form; the
   // key in the store needs only to be unique and to keep the extension.
   const dot = file.name.lastIndexOf('.');
   const ext = dot === -1 ? '' : file.name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, '').slice(0, 10);
+  const pathname = `${UPLOAD_FOLDERS[key]}/${Date.now()}${ext}`;
+
+  // Permission to upload is asked for here, through the ordinary API client,
+  // rather than left to the blob library's own `upload()`. That one throws away
+  // the server's answer and reports every refusal as "Failed to retrieve the
+  // client token"; this way the actual reason reaches the form, and the request
+  // carries the session the same way every other one does.
+  const { clientToken } = await api
+    .post('/uploads', {
+      type: 'blob.generate-client-token',
+      payload: { pathname, clientPayload: null, multipart: false },
+    })
+    .then((r) => r.data);
+
+  // Loaded on demand: only an admin uploading anything ever needs it.
+  const { put } = await import('@vercel/blob/client');
 
   try {
-    const blob = await upload(`${UPLOAD_FOLDERS[key]}/${Date.now()}${ext}`, file, {
+    const blob = await put(pathname, file, {
       access: 'public',
-      handleUploadUrl: `${API_ROOT}/api/uploads`,
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      token: clientToken,
       contentType: file.type || undefined,
       onUploadProgress: ({ percentage }) => onProgress?.(Math.round(percentage)),
     });

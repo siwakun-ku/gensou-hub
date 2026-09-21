@@ -150,6 +150,65 @@ describe('Direct uploads', () => {
       await request(app).post('/api/uploads').set('Authorization', user.auth).send({}).expect(403);
     });
 
+    describe('switched to blob', () => {
+      const saved = {};
+      const setEnv = (vars) => {
+        for (const [key, value] of Object.entries(vars)) {
+          saved[key] ??= process.env[key];
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      };
+      after(() => {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      });
+
+      // The body @vercel/blob/client sends, and the client now sends itself.
+      const ask = (auth, pathname) =>
+        request(app)
+          .post('/api/uploads')
+          .set('Authorization', auth)
+          .send({
+            type: 'blob.generate-client-token',
+            payload: { pathname, clientPayload: null, multipart: false },
+          });
+
+      test('says plainly when the store is not connected', async () => {
+        setEnv({ STORAGE_DRIVER: 'blob', BLOB_READ_WRITE_TOKEN: undefined });
+        const admin = await makeAdmin();
+
+        const res = await ask(admin.auth, 'tracks/1.mp3').expect(500);
+        assert.match(res.body.message, /BLOB_READ_WRITE_TOKEN is not set/);
+      });
+
+      // Issuing a client token is signed locally, so no real store is needed.
+      test('issues an admin a token for an upload it allows', async () => {
+        setEnv({
+          STORAGE_DRIVER: 'blob',
+          BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_teststore123_secretsecretsecret',
+        });
+        const admin = await makeAdmin();
+
+        const res = await ask(admin.auth, 'tracks/1.mp3').expect(200);
+        assert.equal(res.body.type, 'blob.generate-client-token');
+        assert.ok(res.body.clientToken);
+      });
+
+      test('refuses a token for a folder uploads do not go to', async () => {
+        setEnv({
+          STORAGE_DRIVER: 'blob',
+          BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_teststore123_secretsecretsecret',
+        });
+        const admin = await makeAdmin();
+
+        const res = await ask(admin.auth, 'secrets/1.mp3').expect(400);
+        assert.match(res.body.message, /not accepted/);
+      });
+    });
+
     test('ignores an uploaded-file address sent to a local server', async () => {
       const admin = await makeAdmin();
       const album = await request(app)

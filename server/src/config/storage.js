@@ -48,6 +48,22 @@ export function usingBlob() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL);
 }
 
+/**
+ * Throw a message someone can act on when the store is not connected, instead
+ * of whatever the blob library would say about a missing token.
+ */
+export function assertBlobConfigured() {
+  if (process.env.BLOB_READ_WRITE_TOKEN) return;
+
+  throw Object.assign(
+    new Error(
+      'File storage is not configured: BLOB_READ_WRITE_TOKEN is not set. Connect a ' +
+        'Blob store to this Vercel project (Storage tab), then redeploy.'
+    ),
+    { status: 500 }
+  );
+}
+
 /** The directory a folder's files sit in, on the disk driver. */
 export function dirFor(folder) {
   return path.join(UPLOAD_ROOT, folder);
@@ -96,16 +112,7 @@ async function put(folder, file) {
 
   if (!usingBlob()) return { fileName: file.filename };
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    throw Object.assign(
-      new Error(
-        'File storage is not configured: BLOB_READ_WRITE_TOKEN is not set. Connect a ' +
-          'Blob store to this Vercel project (Storage tab), then redeploy.'
-      ),
-      { status: 500 }
-    );
-  }
-
+  assertBlobConfigured();
   const { put: putBlob } = await import('@vercel/blob');
   // The generated name is already unique, so the store need not add a suffix of
   // its own — which keeps the key readable and predictable.

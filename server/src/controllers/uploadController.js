@@ -1,4 +1,4 @@
-import { usingBlob } from '../config/storage.js';
+import { usingBlob, assertBlobConfigured } from '../config/storage.js';
 import { UPLOAD_RULES } from '../middleware/upload.js';
 
 /**
@@ -31,6 +31,7 @@ export async function issueUploadToken(req, res) {
     });
   }
 
+  assertBlobConfigured();
   const { handleUpload } = await import('@vercel/blob/client');
 
   const result = await handleUpload({
