@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gensou-Hub | 幻想-ハブ</title>
+    <!-- Served from public/, so the path is absolute and needs no bundling. -->
+    <link rel="icon" type="image/png" href="/gensou-hub-banner.png" />
+    <link rel="apple-touch-icon" href="/gensou-hub-banner.png" />
+    <script>
+      // Runs before the first paint, so a dark-mode visitor never sees the page
+      // flash white while React loads and ThemeContext catches up. The key is
+      // the one in ThemeContext.jsx; nothing stored means follow the machine.
+      (function () {
+        try {
+          var stored = localStorage.getItem('gensou-hub-theme');
+          var dark =
+            stored === 'dark' ||
+            (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+        } catch (e) {
+          // No storage: the light default stands until the app decides.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

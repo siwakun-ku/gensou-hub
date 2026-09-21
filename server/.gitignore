@@ -1,0 +1,9 @@
+node_modules/
+.env
+
+# Uploads made while running against the disk driver. A deployment keeps its
+# files in a blob store instead, so none of this belongs in the repository.
+# Matched by a glob rather than folder by folder, so a new kind of upload is
+# covered the day it is added.
+uploads/*/*
+!uploads/**/.gitkeep

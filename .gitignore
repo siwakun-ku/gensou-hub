@@ -1,0 +1,14 @@
+node_modules/
+dist/
+
+# Secrets. Only the .env.example templates are committed.
+.env
+.env.local
+.env.*.local
+
+# Vercel's local project link and pulled environment.
+.vercel
+
+.DS_Store
+Thumbs.db
+*.log

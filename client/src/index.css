@@ -1,0 +1,365 @@
+@import 'tailwindcss';
+
+/*
+ * Dark mode is a choice, not just an OS setting, so it hangs off a class the
+ * app puts on <html> rather than off prefers-color-scheme. The provider decides
+ * which one wins; this only says what "dark" looks like.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50: oklch(0.97 0.02 285);
+  --color-brand-300: oklch(0.8 0.11 285);
+  --color-brand-500: oklch(0.62 0.19 285);
+  --color-brand-600: oklch(0.55 0.19 285);
+  --color-brand-700: oklch(0.48 0.17 285);
+
+  /*
+   * The raised surface: cards, panels, the header and the player bar. It cannot
+   * be `white`, because plenty of white in this app is white on purpose — text
+   * over a wallpaper, the transport buttons — and must stay that way in the
+   * dark.
+   */
+  --color-surface: oklch(1 0 0);
+
+  /*
+   * The page behind everything. Separate from slate-50 because the two roles
+   * pull apart in the dark: the page wants the deepest value in the theme,
+   * while slate-50 is also every row and button hover and has to sit *above*
+   * a card to read as a lift rather than a dent.
+   */
+  --color-canvas: oklch(0.984 0.003 247.858);
+
+  /*
+   * Surfaces that are dark in both themes: the hero's backdrop and the wash
+   * behind the spotlight's text. These sit under photographs and have to stay
+   * dark for the white on top of them to read.
+   */
+  --color-ink: oklch(0.21 0.04 266);
+  --color-ink-deep: oklch(0.13 0.04 265);
+}
+
+/*
+ * Dark mode by redefinition rather than by a `dark:` on every element.
+ *
+ * The app uses slate for every neutral, in one consistent direction: low
+ * numbers are backgrounds, high numbers are text. Flipping that ramp here
+ * turns the whole interface over at once, and keeps the two themes from
+ * drifting apart as the app grows.
+ *
+ * The ends are not a straight mirror. The dark end sits well above black —
+ * a charcoal rather than a void, which is easier to look at for a long time and
+ * lets shadows and raised surfaces still read. The middle of the ramp, where
+ * the muted text lives, is lifted rather than reflected, because text needs
+ * more contrast against a dark background than against a light one.
+ *
+ * Only neutrals and the tints used as panels are flipped. Anything whose value
+ * is doing two jobs is left alone and handled per element: brand-700 is both
+ * this app's link colour and a button's hover, and those want opposite moves.
+ */
+html.dark {
+  --color-canvas: oklch(0.24 0.015 266);
+  --color-surface: oklch(0.29 0.016 266);
+
+  /* Hovers and borders, each a step above the surface they sit on. */
+  --color-slate-50: oklch(0.34 0.016 266);
+  --color-slate-100: oklch(0.37 0.016 266);
+  --color-slate-200: oklch(0.42 0.016 266);
+  --color-slate-300: oklch(0.49 0.016 266);
+  --color-slate-400: oklch(0.68 0.018 266);
+  --color-slate-500: oklch(0.75 0.016 266);
+  --color-slate-600: oklch(0.82 0.014 266);
+  --color-slate-700: oklch(0.89 0.01 266);
+  --color-slate-800: oklch(0.93 0.008 266);
+  --color-slate-900: oklch(0.97 0.003 266);
+  --color-slate-950: oklch(0.99 0 0);
+
+  /* Tints used as notice panels, and the text that sits on them. */
+  --color-brand-50: oklch(0.35 0.06 285);
+  --color-red-50: oklch(0.33 0.07 25);
+  --color-red-200: oklch(0.45 0.09 25);
+  --color-red-300: oklch(0.5 0.11 25);
+  --color-red-600: oklch(0.77 0.15 25);
+  --color-red-700: oklch(0.83 0.12 25);
+  --color-amber-50: oklch(0.34 0.05 75);
+  --color-amber-200: oklch(0.47 0.07 75);
+  --color-amber-700: oklch(0.85 0.11 75);
+  --color-amber-800: oklch(0.89 0.09 75);
+  --color-amber-900: oklch(0.93 0.05 75);
+}
+
+/* Lets the browser paint form controls and scrollbars to match. */
+html.dark {
+  color-scheme: dark;
+}
+
+/*
+ * A select's open list is drawn by the browser, not by the page, and it does
+ * not reliably follow color-scheme — on Windows it can come up white while the
+ * options inherit the light text of the dark theme. Paint them explicitly.
+ */
+@layer base {
+  select option,
+  select optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-slate-900);
+  }
+}
+
+/*
+ * Hero banner: everything below the header, down to the bottom of the viewport.
+ * --header-height is measured and published by Layout; the fallback covers the
+ * first paint before that runs. dvh keeps it right on mobile, where browser
+ * chrome slides away, with a vh fallback for older engines.
+ */
+.hero-full {
+  height: calc(100vh - var(--header-height, 3.75rem));
+  min-height: 360px;
+}
+
+@supports (height: 100dvh) {
+  .hero-full {
+    height: calc(100dvh - var(--header-height, 3.75rem));
+  }
+}
+
+/*
+ * Hero wallpaper drift — a slow push in over the life of a slide.
+ *
+ * The resting scale is the END of the drift, not the start. When a slide stops
+ * being the active one its animation is dropped and the image snaps to this
+ * value, so matching the two means the outgoing wallpaper holds still while it
+ * fades instead of springing back. Pairing that with a run as long as a slide
+ * lasts leaves the drift finishing exactly as the slide hands over.
+ *
+ * Linear, not eased: an ease-out spends most of its travel in the first second
+ * and then crawls, which looks like a push that finished early and left the
+ * wallpaper sitting still. A constant rate is what actually fills the hold.
+ */
+.hero-zoom {
+  scale: 1.08;
+}
+
+.hero-zoom-active {
+  animation: hero-zoom var(--hero-slide-ms, 6000ms) linear forwards;
+}
+
+@keyframes hero-zoom {
+  from {
+    scale: 1;
+  }
+  to {
+    scale: 1.08;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-zoom,
+  .hero-zoom-active {
+    scale: 1;
+    animation: none;
+  }
+}
+
+/*
+ * The recommendation spotlight.
+ *
+ * A live dot and a dancing meter, which together say "this is what is on right
+ * now" without inventing a number to back it up.
+ */
+@keyframes rec-ping {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+.rec-ping {
+  animation: rec-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes rec-bar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.rec-bar {
+  transform-origin: bottom;
+  animation: rec-bar 900ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-ping {
+    animation: none;
+    opacity: 0;
+  }
+
+  /* Held at full height: still reads as a meter, just one that is not dancing. */
+  .rec-bar {
+    animation: none;
+    transform: scaleY(1);
+  }
+}
+
+/*
+ * The album overview: a slow, continuous drift rather than a paged carousel.
+ *
+ * The row holds the same albums twice. Translating it exactly half its width
+ * lands the second copy where the first began, so the loop has no seam and no
+ * jump back to the start.
+ *
+ * The spacing is padding on each card rather than a flex `gap`, which matters:
+ * with a gap, half the row's width is not half a copy — it is out by half a
+ * gap, and the loop drifts a little further every pass.
+ */
+.album-marquee {
+  animation: album-marquee var(--marquee-ms, 60s) linear infinite;
+}
+
+@keyframes album-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Hold still while it is being read, or tabbed through. */
+.album-marquee-viewport:hover .album-marquee,
+.album-marquee-viewport:focus-within .album-marquee {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .album-marquee {
+    animation: none;
+  }
+
+  /* Nothing moves on its own, so the row becomes one the reader scrolls. */
+  .album-marquee-viewport {
+    overflow-x: auto;
+  }
+}
+
+/*
+ * The line under the mark on the sign-in panel: a slow, continuous drift.
+ *
+ * Built the same way the album row is, and for the same reason — the track
+ * holds the sentence twice and travels exactly half its own width, so the
+ * second copy arrives where the first began and the loop has no seam.
+ *
+ * The spacing between the copies is padding on each one rather than a flex
+ * `gap`: with a gap, half the track is not half a copy, and the loop slips a
+ * little further every pass.
+ */
+.auth-marquee {
+  animation: auth-marquee var(--auth-marquee-ms, 34s) linear infinite;
+}
+
+@keyframes auth-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Softens both ends, so the words arrive and leave rather than being cut off
+   against the edge of the panel. */
+.auth-marquee-viewport {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+
+/* Hold still while it is being read, or tabbed through. */
+.auth-marquee-viewport:hover .auth-marquee,
+.auth-marquee-viewport:focus-within .auth-marquee {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * Nothing drifts, so the sentence goes back to being an ordinary wrapped
+   * paragraph: the track stops being a row, the duplicate is dropped rather
+   * than printed twice, and the mask comes off so no edge is dimmed.
+   */
+  .auth-marquee {
+    animation: none;
+    display: block;
+    width: auto;
+  }
+
+  .auth-marquee-viewport {
+    white-space: normal;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .auth-marquee-echo {
+    display: none;
+  }
+}
+
+/*
+ * A glint travelling along the caption on the sign-in panel.
+ *
+ * The text is painted with a gradient clipped to the letterforms, and it is the
+ * gradient that moves — not the text. That matters: the line already sits on a
+ * drifting marquee track, and anything animating `transform` here would fight
+ * it. Moving `background-position` only paints, so the two run independently.
+ *
+ * It must not change how wide the text measures either. The marquee loops by
+ * travelling exactly half the track, so a sweep that nudged letter-spacing or
+ * scale would put the seam in the wrong place on every pass.
+ */
+.auth-shimmer {
+  --shimmer-base: rgb(255 255 255 / 0.65);
+  --shimmer-glint: rgb(255 255 255 / 1);
+
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-base) 35%,
+    var(--shimmer-glint) 50%,
+    var(--shimmer-base) 65%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* The letters are a window onto the gradient, so they carry no colour of
+     their own — which is why the class also owns the resting shade above. */
+  color: transparent;
+  animation: auth-shimmer var(--auth-shimmer-ms, 7s) linear infinite;
+}
+
+@keyframes auth-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No sweep, so the gradient comes off entirely and the text goes back to
+     being ordinary coloured text at the shade the glint rests on. */
+  .auth-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: var(--shimmer-base);
+  }
+}
